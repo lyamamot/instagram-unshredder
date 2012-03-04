@@ -58,13 +58,15 @@ def get_distances():
 def get_sequences():
 	l2rDistance, r2lDistance = get_distances()
 
+	l2rSequence, r2lSequence = [], []
+
 	for i, v in enumerate(l2rDistance):
 		val = min(x for x in v if x > 0)
-		l2rSequence[i] = (v.index(val), val)
+		l2rSequence.append((v.index(val), val))
 
 	for i, v in enumerate(r2lDistance):
 		val = min(x for x in v if x > 0)
-		r2lSequence[i] = (v.index(val), val)
+		r2lSequence.append((v.index(val), val))
 
 	return (l2rSequence, r2lSequence)
 
@@ -72,44 +74,47 @@ def get_sequences():
 # For every band, get its left band. For that band, get its right band. These are not necessarily the same.
 # If they are the same, assume it is a good match. Otherwise, the match with the shortest distance is the true
 # match and the other band is the start.
-def get_start_band():
-	# Compare right matches to left matches and eliminate mismatches to find the bands that belong on the end.
-	l2rDistance, r2lDistance = get_distances()
-	l2rSequence, r2lSequence = get_sequences()
-
+def get_start_band(l2rSequence, r2lSequence):
 	startBand = None
 	for i, v in enumerate(r2lSequence):
 		# Value and index of band to the left of i.
-		leftMatch = i
-		leftValue = v
+		leftMatch = v[0] 
+		leftValue = v[1]
 
 		# Value and index of band to the right of leftMatch.
-		rightMatch = r2lSequence[0]
-		rightValue = r2lSequence[1]
+		rightMatch = l2rSequence[leftMatch][0]
+		rightValue = l2rSequence[leftMatch][1]
 
-#	print '{0:2} [{1:2}] {2:2}'.format(l2rDistance[i].index(min(x for x in l2rDistance[i] if x > 0)) + 1, i + 1, leftMatch + 1)
+#print '{0:2} [{1:2}] {2:2}'.format(leftMatch + 1, i + 1, l2rSequence[i][0] + 1)
 
 		if leftValue < rightValue:
 			startBand = rightMatch
-			break
 
 		elif rightValue < leftValue:
 			startBand = i
-			break
 
 	return startBand
 
-startBand = get_start_band()
-print '{0} is the start'.format(startBand + 1)
+# Compare right matches to left matches and eliminate mismatches to find the bands that belong on the end.
+l2rSequence, r2lSequence = get_sequences()
+startBand = get_start_band(l2rSequence, r2lSequence)
+#print '{0} is the start'.format(startBand + 1)
 
 # Create a new image of the same size as the original
 # and copy a region into the new image
-#unshredded = Image.new("RGBA", image.size)
-#shred_number = 1
-#x1, y1 = shred_width * shred_number, 0
-#x2, y2 = x1 + shred_width, height
-#source_region = image.crop(x1, y1, x2, y2)
-#destination_point = (0, 0)
-#unshredded.paste(source_region, destination_point)
-# Output the new image
-#unshredded.save("unshredded.jpg", "PNG")
+unshredded = Image.new("RGBA", image.size)
+
+band_number = startBand
+for i in range(width / BAND_WIDTH):
+	x1, y1 = BAND_WIDTH * band_number, 0
+	x2, y2 = x1 + BAND_WIDTH, height
+
+	source_region = image.crop((x1, y1, x2, y2))
+	destination_point = (i * BAND_WIDTH, 0)
+	unshredded.paste(source_region, destination_point)
+	
+	band_number = l2rSequence[band_number][0]
+
+# Output the new image.
+unshredded.save("unshredded.png", "PNG")
+
