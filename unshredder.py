@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 from PIL import Image
+import math
+
 image = Image.open('TokyoPanoramaShredded.png')
 data = image.getdata()
 # print image.getpixel((20, 30))
@@ -12,98 +14,102 @@ width, height = image.size
 def get_pixel(x, y):
 	return data[y * width + x]
 
-# Calculate the hash value of a single pixel.
-def get_hash(x, y):
-	pixel = get_pixel(x, y)
+# Calculates the distance between the two pixel values.
+def get_distance(x1, y1, x2, y2):
+	if 0 <= x1 < width and 0 <= x2 < width and 0 <= y1 < height and 0 <= y2 < height:
+		pixel1 = get_pixel(x1, y1)
+		pixel2 = get_pixel(x2, y2)
 
-	hash = 37 
-	for p in range(3):
-		hash = 17 * hash + pixel[p]
-	return hash
+		return pow(pow(pixel2[0] - pixel1[0], 2) + pow(pixel2[1] - pixel2[1], 2) + pow(pixel2[2] - pixel1[2], 2), 0.5)
+	return None
 
-# Iterate over the image bands and calculate edge hashes separately for left and right sides.
-def get_band_hashes():
-	numBands = range(width / BAND_WIDTH)
-	leftHashes, rightHashes = {},{}
-	for x in numBands:
-		left = x * BAND_WIDTH
-		right = (x + 1) * BAND_WIDTH - 1
+# Calculate two matrices of distances between band edges from left to right and right to left.
+# distance[i, j] = distance between right edge of i and left edge of j if i < j
+# We can calculate right to left edges in the same function but less work to just zip later.
+def get_distances():
+	numBands = width / BAND_WIDTH
+	l2rDistance = [[0 for col in range(numBands)] for row in range(numBands)]
+	r2lDistance = [[0 for col in range(numBands)] for row in range(numBands)]
+	for i in range(len(l2rDistance)):
+		for j in range(len(l2rDistance)):
+			if i == j:
+				continue
 
-		leftHash = 37
-		rightHash = 37
-		for y in range(height):
-			leftHash = 17 * leftHash + get_hash(left, y)
-			rightHash = 17 * rightHash + get_hash(right, y)
+			leftJ = (i + 1) * BAND_WIDTH - 1 # left column of band j
+			rightI = j * BAND_WIDTH # right column of band i
 
-#leftHashes[x] = leftHash >> 1344
-#		rightHashes[x] = rightHash >> 1344
-		leftHashes[x] = leftHash
-		rightHashes[x] = rightHash
-		print '{0:3} {1:7} {2:7}'.format(x + 1, leftHash >> 1400, rightHash >> 1400)
+			distanceSum = 0
+			for y in range(height):
+				d = get_distance(leftJ, y, rightI, y)
 
-	return (leftHashes, rightHashes)
+				if d == None:
+					distanceSum = None
+					break	
 
-# Iterate over the image bands and calculate edge hashes separately for left and right sides.
-def get_band_sums():
-	numBands = range(width / BAND_WIDTH)
-	leftSums, rightSums = {}, {}
-	for x in numBands:
-		left = x * BAND_WIDTH
-		right = (x + 1) * BAND_WIDTH - 1
+				distanceSum += d
 
-		leftSum = 0
-		rightSum = 0
-		for y in range(height):
-			leftSum += get_hash(left, y)
-			rightSum += get_hash(right, y)
+			l2rDistance[i][j] = distanceSum
+			r2lDistance[j][i] = distanceSum
 
-		leftSums[x] = leftSum
-		rightSums[x] = rightSum
+#		print '{0:2} {1:2} {2}'.format(i + 1, j + 1, distanceSum)
+	return (l2rDistance, r2lDistance)
 
-		print '{0:3} {1:7} {2:7}'.format(x + 1, leftSum, rightSum)
+# Returns a map of band indices to the index of the next band, from left to right and from right to left.
+def get_sequences():
+	l2rDistance, r2lDistance = get_distances()
 
-	return (leftSums, rightSums)
+	for i, v in enumerate(l2rDistance):
+		val = min(x for x in v if x > 0)
+		l2rSequence[i] = (v.index(val), val)
 
-lefts, rights = get_band_hashes()
+	for i, v in enumerate(r2lDistance):
+		val = min(x for x in v if x > 0)
+		r2lSequence[i] = (v.index(val), val)
 
-# Returns the number of the band that matches the given band on the left side.
-def get_left_match(n):
-	mindex = -1
-	minval = None
-	for k, v in rights.iteritems():
-		if k == n:
-			continue
+	return (l2rSequence, r2lSequence)
 
-		diff = abs(lefts[n] - v)
-		if minval is None or minval > diff:
-			minval = diff
-			mindex = k
+# Compare edges to find any duplicates and to determine which band is the first.
+# For every band, get its left band. For that band, get its right band. These are not necessarily the same.
+# If they are the same, assume it is a good match. Otherwise, the match with the shortest distance is the true
+# match and the other band is the start.
+def get_start_band():
+	# Compare right matches to left matches and eliminate mismatches to find the bands that belong on the end.
+	l2rDistance, r2lDistance = get_distances()
+	l2rSequence, r2lSequence = get_sequences()
 
-	if mindex == n:
-		return None
+	startBand = None
+	for i, v in enumerate(r2lSequence):
+		# Value and index of band to the left of i.
+		leftMatch = i
+		leftValue = v
 
-	return mindex
+		# Value and index of band to the right of leftMatch.
+		rightMatch = r2lSequence[0]
+		rightValue = r2lSequence[1]
 
-# Returns the number of the band that matches the given band on the right side.
-def get_right_match(n):
-	mindex = -1
-	minval = None
-	for k, v in lefts.iteritems():
-		if k == n:
-			continue
+#	print '{0:2} [{1:2}] {2:2}'.format(l2rDistance[i].index(min(x for x in l2rDistance[i] if x > 0)) + 1, i + 1, leftMatch + 1)
 
-		diff = abs(rights[n] - v)
-		if minval is None or minval > diff:
-			minval = diff
-			mindex = k
+		if leftValue < rightValue:
+			startBand = rightMatch
+			break
 
-	if mindex == n:
-		return None
+		elif rightValue < leftValue:
+			startBand = i
+			break
 
-	return mindex
+	return startBand
 
-for i in range(width / BAND_WIDTH):
-	left = get_left_match(i)
-	right = get_right_match(i)
+startBand = get_start_band()
+print '{0} is the start'.format(startBand + 1)
 
-	print '{0:4} {1:3} {2:4}'.format(left + 1, i + 1, right + 1)
+# Create a new image of the same size as the original
+# and copy a region into the new image
+#unshredded = Image.new("RGBA", image.size)
+#shred_number = 1
+#x1, y1 = shred_width * shred_number, 0
+#x2, y2 = x1 + shred_width, height
+#source_region = image.crop(x1, y1, x2, y2)
+#destination_point = (0, 0)
+#unshredded.paste(source_region, destination_point)
+# Output the new image
+#unshredded.save("unshredded.jpg", "PNG")
